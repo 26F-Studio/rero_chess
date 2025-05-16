@@ -228,6 +228,11 @@ export type Prop =
   | SwapProp
   | ExitProp;
 
+export interface GapConfig {
+  min: number;
+  max: number;
+}
+
 export interface CheckpointConfig {
   probability: number;
   convertion?: {
@@ -243,9 +248,6 @@ export interface CheckpointConfig {
 export interface GenerateConfig {
   mainLength: number;
   difficulty: number;
-  gap: {
-    min: number;
-    max: number;
-  };
+  gap: GapConfig;
   checkpoints: CheckpointConfig[];
 }

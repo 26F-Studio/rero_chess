@@ -3,14 +3,14 @@ import {
   CheckpointConfig,
   DiceModifier,
   DiceModProp,
+  GapConfig,
   GenerateConfig,
   PropType,
 } from "./types";
 
-const generateDiceModProp = (gap: {
-  min?: number;
-  max: number;
-}): { prop: DiceModProp; newGapMax: number } => {
+const generateDiceModProp = (
+  gap: GapConfig
+): { prop: DiceModProp; newGapMax: number } => {
   switch (Math.floor(Math.random() * 5)) {
     case 0: {
       const value = Math.floor(Math.random() * gap.max) + 1;
@@ -66,7 +66,7 @@ const generateDiceModProp = (gap: {
     }
     default: {
       const value = Math.min(
-        Math.floor(Math.random() * (gap.max - (gap.min ?? 0))),
+        Math.floor(Math.random() * (gap.max - gap.min)),
         gap.max - 1
       );
       return {
@@ -83,15 +83,47 @@ const generateDiceModProp = (gap: {
   }
 };
 
-const initRootCheckpoint = (map: CellData[], config: GenerateConfig) => {
+const constructMainPath = (pathLength: number) => {
+  const path = new Array<CellData & { data?: object }>(pathLength).fill({
+    id: -1,
+    props: [],
+    extra: {},
+  });
+  for (const [index, cell] of path.entries()) {
+    if (index === 0) {
+      cell.props.push({
+        type: PropType.label,
+        data: "起点",
+      });
+      cell.extra = {
+        checkpointLevel: 0,
+      };
+    } else if (index === path.length - 1) {
+      cell.props.push({
+        type: PropType.label,
+        data: "终点",
+      });
+      cell.props.push({
+        type: PropType.text,
+        data: "终点",
+      });
+    }
+    cell.id = index;
+  }
+  return path;
+};
+
+const initCheckpoints = (map: CellData[], config: GenerateConfig) => {
   const { probability } = config.checkpoints[0];
   if (probability < 0 || probability > 1) {
     throw new Error("The first checkpoint probability must be between 0 and 1");
   }
   let gapCounter = 0;
-  for (const [index, cell] of map.entries()) {
-    cell.id = index;
-    if (Math.random() < probability || gapCounter >= config.gap.max) {
+  for (const cell of map.slice(1, -1)) {
+    if (
+      (gapCounter > config.gap.min && Math.random() < probability) ||
+      gapCounter >= config.gap.max
+    ) {
       cell.extra = {
         checkpointLevel: 0,
       };
@@ -137,13 +169,9 @@ export const generateMap = (config: GenerateConfig) => {
     throw new Error("checkpoint.probability must >= 0 and <= 1");
   }
 
-  const map = new Array<CellData & { data?: object }>(config.mainLength).fill({
-    id: -1,
-    props: [],
-    extra: {},
-  });
-  initRootCheckpoint(map, config);
-  
+  const map = constructMainPath(config.mainLength);
+  initCheckpoints(map, config);
+
   // const { convertion, probability } = sortedCheckpoints[0];
 
   // let currentGapConfig = config.gap;
