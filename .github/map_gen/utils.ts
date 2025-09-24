@@ -3,13 +3,32 @@ import {
   CheckpointConfig,
   DiceModifier,
   DiceModProp,
-  GapConfig,
   GenerateConfig,
+  MapData,
   PropType,
 } from "./types";
 
+const validateConfig = (config: GenerateConfig) => {
+  if (config.mainLength < 1) {
+    throw new Error("mainLength must be >= 1");
+  }
+  if (config.minDiceRequirement < 1) {
+    throw new Error("minDiceRequirement must be >= 1");
+  }
+  if (config.checkpoints.length === 0) {
+    throw new Error("checkpoints must not be empty");
+  }
+  if (
+    config.checkpoints.some(
+      (checkpoint) => checkpoint.probability < 0 || checkpoint.probability > 1
+    )
+  ) {
+    throw new Error("checkpoint.probability must be >= 0 and <= 1");
+  }
+};
+
 const generateDiceModProp = (
-  gap: GapConfig
+  config: GenerateConfig
 ): { prop: DiceModProp; newGapMax: number } => {
   switch (Math.floor(Math.random() * 5)) {
     case 0: {
@@ -84,33 +103,41 @@ const generateDiceModProp = (
 };
 
 const constructMainPath = (pathLength: number) => {
-  const path = new Array<CellData & { data?: object }>(pathLength).fill({
-    id: -1,
-    props: [],
-    extra: {},
-  });
-  for (const [index, cell] of path.entries()) {
+  return Array.from({ length: pathLength }, (_, index) => {
+    const cell: CellData & { data?: object } = {
+      id: index,
+      props: [],
+      extra: {},
+    };
+
     if (index === 0) {
-      cell.props.push({
-        type: PropType.label,
-        data: "起点",
-      });
-      cell.extra = {
-        checkpointLevel: 0,
-      };
-    } else if (index === path.length - 1) {
-      cell.props.push({
-        type: PropType.label,
-        data: "终点",
-      });
-      cell.props.push({
-        type: PropType.text,
-        data: "终点",
-      });
+      cell.props.push(
+        {
+          type: PropType.label,
+          data: "begin",
+        },
+        {
+          type: PropType.text,
+          data: "起点",
+        }
+      );
+      cell.extra.checkpointLevel = 0;
+    } else if (index === pathLength - 1) {
+      cell.props.push(
+        {
+          type: PropType.label,
+          data: "end",
+        },
+        {
+          type: PropType.text,
+          data: "终点",
+        }
+      );
+      cell.extra.checkpointLevel = 0;
     }
-    cell.id = index;
-  }
-  return path;
+
+    return cell;
+  });
 };
 
 const initCheckpoints = (map: CellData[], config: GenerateConfig) => {
@@ -148,73 +175,65 @@ const initCheckpoints = (map: CellData[], config: GenerateConfig) => {
   }
 };
 
-export const generateMap = (config: GenerateConfig) => {
-  if (config.mainLength < 1) {
-    throw new Error("mainLength must >= 1");
-  }
-  if (config.gap.min < 0 || config.gap.max < 1) {
-    throw new Error("gap.min must >= 0, gap.max must >= 1");
-  }
-  if (config.gap.min > config.gap.max) {
-    throw new Error("gap.min must > gap.max");
-  }
-  if (config.checkpoints.length === 0) {
-    throw new Error("checkpoints must not be empty");
-  }
-  if (
-    config.checkpoints.some(
-      (checkpoint) => checkpoint.probability < 0 || checkpoint.probability > 1
-    )
-  ) {
-    throw new Error("checkpoint.probability must >= 0 and <= 1");
-  }
+const convertCheckpoints = (
+  map: CellData[],
+  checkpointConfigs: CheckpointConfig[]
+) => {
+  for (const [level, config] of checkpointConfigs.entries()) {
+    const { convertion } = config;
+    if (!convertion) {
+      continue;
+    }
 
-  const map = constructMainPath(config.mainLength);
-  initCheckpoints(map, config);
+    const cellsWithCheckpoint = map.filter(
+      (cell) => cell.extra?.checkpointLevel === level
+    );
+    for (const [index, cell] of cellsWithCheckpoint.entries()) {
+      if (Math.random() < convertion.rate) {
+        const convertionValue =
+          Math.random() *
+          Object.values(convertion.ratio).reduce((acc, cur) => acc + cur, 0);
+        if (convertionValue < convertion.ratio.dice) {
+          const { prop, newGapMax } = generateDiceModProp({
+            min: 1,
+            max: (cellsWithCheckpoint[index + 1]?.id ?? map.length) - cell.id,
+          });
+          cell.props?.push(prop);
+        } else if (
+          convertionValue <
+          convertion.ratio.dice + convertion.ratio.extraTurns
+        ) {
+          cell.props?.push({
+            type: PropType.exTurn,
+            data: Math.floor(Math.sin((Math.random() * Math.PI) / 2) * 3) + 1,
+          });
+        } else {
+          cell.props?.push({
+            type: PropType.reverse,
+          });
+        }
+      }
+    }
+  }
+};
 
-  // const { convertion, probability } = sortedCheckpoints[0];
+const fillNormalCells = (
+  cellDataList: CellData[],
+  config: GenerateConfig
+) => {};
 
-  // let currentGapConfig = config.gap;
-  // let gapCounter = 0;
-  // for (const [index, cell] of map.entries()) {
-  //   cell.id = index;
-  //   if (Math.random() < probability || gapCounter >= currentGapConfig.max) {
-  //     if (convertion && Math.random() < convertion.rate) {
-  //       const convertionValue =
-  //         Math.random() *
-  //         Object.values(convertion.ratio).reduce((acc, cur) => acc + cur, 0);
-  //       if (convertionValue < convertion.ratio.dice) {
-  //         const { prop, newGapMax } = generateDiceModProp(currentGapConfig);
-  //         cell.props?.push(prop);
-  //         if (Math.random() < config.difficulty) {
-  //           currentGapConfig.max = newGapMax;
-  //         }
-  //       } else if (
-  //         convertionValue <
-  //         convertion.ratio.dice + convertion.ratio.extraTurns
-  //       ) {
-  //         cell.props?.push({
-  //           type: PropType.exTurn,
-  //           data: Math.floor(Math.sin((Math.random() * Math.PI) / 2) * 3) + 1,
-  //         });
-  //       } else {
-  //         cell.props?.push({
-  //           type: PropType.reverse,
-  //         });
-  //       }
-  //     }
-  //     cell.data = {
-  //       checkpointLevel: sortedCheckpoints[0].level,
-  //     }
-  //     gapCounter = 0;
-  //   } else {
-  //     // if (Math.random() < 0.5 * (1 + config.difficulty)) {
-  //     //   cell.props?.push({
-  //     //     type: PropType.step,
-  //     //     data: Math.floor(Math.random() * 6) + 1,
-  //     //   });
-  //     // }
-  //     gapCounter++;
-  //   }
-  // }
+export const generateMap = (config: GenerateConfig): MapData => {
+  validateConfig(config);
+
+  const seed = config.seed ?? Math.floor(Math.random() * 1000000);
+  const cellDataList = constructMainPath(config.mainLength);
+  initCheckpoints(cellDataList, config);
+  convertCheckpoints(cellDataList, config.checkpoints);
+
+  return {
+    playerData: [],
+    decoData: [],
+    mapData: cellDataList,
+    seed,
+  };
 };
